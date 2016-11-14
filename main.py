@@ -83,7 +83,7 @@ def process_row(x):
 		percentage = 0
 	
 	# (Id, Text, HelpfulnessNumerator/HelpfulnessDenominator, Prediction)
-	return x[0], x[9], nonStopWords, percentage, x[6]
+	return x[0], nonStopWords, percentage, x[6]
 		
 		
 def main():
