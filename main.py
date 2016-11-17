@@ -1,5 +1,8 @@
 import pyspark
 import re
+import math
+
+MARGEN_COINCIDENCIA = 0.5
 
 # Lista de stopwords
 # Source:
@@ -73,34 +76,101 @@ def process_row(x):
 	
 	# Filtramos las stop words
 	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
-	
-	percentage = 0
-	
-	try:
-		percentage = round(float(x[4])/float(x[5]), 2)
-	except:
-		# Si no se puede calcular el porcentaje, se usa 0
-		percentage = 0
-	
-	# (Id, Text, HelpfulnessNumerator/HelpfulnessDenominator, Prediction)
-	return x[0], nonStopWords, percentage, x[6]
+	nonStopWords = ' '.join(nonStopWords)
 		
+	# (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction)
+	return x[0], nonStopWords, x[4], x[5], x[6]
 		
+
+def KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
+	return trainRDD.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, hashNumber), x)) \
+			.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])
+			.groupByKey()
+
+
+def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHashesPorGrupo):
+	hashNumber = cantGrupos * cantHashesPorGrupo
+	kShingles = [ string[i:i+shingleSize] for i in range(0, len(string) - shingleSize + 1) ]
+	minhashes = [k for i in range(1, hashNumber)]
+	result = []
+	
+	for shingle in kShingles:
+		for function in range(0, hashNumber-1):
+			tmp = minhashFamily(shingle,function)
+			if tmp < minhashes[hashNumber-1]:
+				minhashes[hashNumber-1] = tmp
+				
+	# En este punto, result tiene todos los minhashes
+	
+	for grp in range(0,cantGrupos-1):
+		result.append(hashFunction(minhashes[grp*cantHashesPorGrupo:grp*cantHashesPorGrupo+cantHashesPorGrupo-1],k))
+		
+	return result
+
+
+def ProcessKNN(knnRDD, test):
+	test.
+	
+
+def prediccionesCoinciden(prediccion1, prediccion2):
+	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
+
 def main():
 	# Loading the data.
 	data = sc.textFile('data/train.csv')
+	test = sc.textFile('data/test.csv')
 
 	# Get the header.
-	header = data.first()
+	headerData = data.first()
+	headerTest = test.first()
 
 	# Extract the header from the dataset.
-	data = data.filter(lambda line: line != header)
+	data = data.filter(lambda line: line != headerData)
+	test = test.filter(lambda line: line != headerTest)
 
-	# Get the marked values.
+	# Process each row
 	data = data.map(lambda line: custom_split(line, ','))\
-		.map(lambda r: process_row(r))\
+			   .map(lambda r: process_row(r))\
+			   
+	test = test.map(lambda line: custom_split(line, ','))\
+			   .map(lambda r: process_row(r))\		
 	
-	print data.take(5)
+	trainRDD = data
+	faultRDD = None
+	successExit = None
+	
+	for i in range(1,iterations):
+		
+		# Retroalimenta el trainRDD con los datos que se consiguen predecir correctamente.
+		trainRDD = injectData(trainRDD, coincidenciasRDD)
+		
+		# "Entrenamiento" de KNN
+		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
+		knnRDD = KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, hashNumber)
+		
+		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
+		# (Id, Review, Prediction)
+		predictionsKNN = ProcessKNN(knnRDD, test)
+		
+		# Entrenamiento de Naive-Bayes
+		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
+		naiveRDD = NBTrainingRDD()
+		
+		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
+		# (Id, Review, Prediction)
+		predictionsNB = ProcessNB(naiveRDD, test)
+		
+		# Comparamos las 2 predicciones. Las que 'coinciden' las consideramos correctas y
+		# ya parte de la solucion final. Las utilizamos para anexarlas al set de train. 
+		# Las que no coinciden, las volvemos a calcular
+		coincidenciasRDD = predictionsKNN.join(predictionsNB)\
+										 .filter(lambda x: prediccionesCoinciden(x[1][0], x[1][1]))
+		test = predictionsKNN.join(predictionsNB)\
+								  .filter(lamba x: not prediccionesCoinciden(x[1][0], x[1][1]))
+								  
+		successExit = appendSuccessfuly(successExit, coincidenciasRDD)
+	
+	return successExit
 	
 if __name__ == "__main__":
     main()
