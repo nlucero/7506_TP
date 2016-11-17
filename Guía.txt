@@ -1,0 +1,118 @@
+----------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------- MAIN FUNCTION:
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Define CONSTANTE: Iteraciones
+# Define CONSTANTE: Error
+
+- Generate RDD Traing
+- Generate RDD Test
+
+For It = 0 to Iteraciones:
+	
+	Function TrainingNB
+		Input: 	RDD Training
+		Output: Vector NB
+	
+	Function ProcessingNB
+		Input:	RDD Test, Vector NB
+		Output:	RDD-NB Output (RDD Test con Valores de Review cargados).
+		
+	Function TrainingKNN
+		Input:	RDD Training
+		Output:	Vector de Hash
+	
+	Function ProcessingKNN
+		Input: 	RDD Test, Vector de Hash
+		Output:	RDD-KNN Output
+	
+	Function Compare
+		Input:	RDD-NB Output y RDD-KNN Output
+		Output:	RDD Output y RDD Failures
+		
+	Function TrainingSet
+		Input:	RDD Training y RDD Failures
+		Output:	RDD Training
+		
+End For
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------- FUNCTION TRAINING NB:
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Spark Codification
+
+Inputs: TrainingRDD
+
+Create VectorNB // Vector de registros de la forma: (Palabra, (Freq. 0, Freq. 1, Freq. 2, Fre1. 3, Freq. 4, Freq. 5))
+
+TrainingRDD.map(lambda Record: GenerateVectorNB(Record, VectorNB))
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------- FUNCTION GENERATE VECTOR NB:
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+Inputs: Record, VectorNB			// Record de la forma: (ID, Review, HelpNum, HelpDen, Score)
+
+Boolean Found = False
+
+Words = Review.split()
+
+For It = 1 to Len(Words):
+	For It2 = 1 to Len(VectorNB):
+	
+		If VectorNB[It2][1] == Words[It]:
+			Found = True
+			VectorNB[It2][2][Record[5] + 1] ++
+		End If
+		
+	End For
+		
+	If Not Found:
+		VectorNB -> Append(Words[It], (0, 0, 0, 0, 0, 0))
+		VectorNB[Len(VectorNB)][2][Record[5] + 1] ++
+	End If
+	
+End For
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------- FUNCTION PROCESSING NB:
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+# Spark Codification
+
+Inputs: TestRDD, VectorNB
+
+OutputNB = TestRDD.map(lambda Record: (Record[1], Record[2], Record[3], Record[4], GetScoreNB(Record[2], VectorNB)))
+
+Return OutputNB
+
+----------------------------------------------------------------------------------------------------------------------------------------------------
+--------------------------- FUNCTION GET SCORE NB:
+----------------------------------------------------------------------------------------------------------------------------------------------------
+
+Inputs: Review, VectorNB
+
+Words = Review.split()
+Prediction = (0, 0, 0, 0, 0, 0)
+
+For It = 1 to Len(Words):
+
+	It2 = 1
+	Found = False
+	While Not Found:
+		
+		If VectorNB[It2][1] == Words[It]:
+			Found = True
+			Prediction += Words[It][2]
+		End If
+		It2 ++
+		If (It2 > Len(VectorNB))
+			Found = True
+		End If
+	
+	End While
+
+End For
+
+Return Score = Max(Prediction)
