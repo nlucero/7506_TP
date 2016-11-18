@@ -54,6 +54,7 @@ try:
 except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
+	
 def custom_split(string, separator):	
 	activated = True
 	token_start_pos = 0
@@ -70,6 +71,7 @@ def custom_split(string, separator):
 	
 	return return_value
 
+
 def process_row(x):
 	# Obtenemos todas las palabras del texto
 	textWords = re.sub("[^\w]", " ",  x[9]).split()
@@ -84,7 +86,7 @@ def process_row(x):
 
 def KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
 	return trainRDD.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, hashNumber), x)) \
-			.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])
+			.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])\
 			.groupByKey()
 
 
@@ -108,12 +110,29 @@ def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHash
 	return result
 
 
-def ProcessKNN(knnRDD, test):
-	test.
+# Obtiene el puntaje en base a los K más cercanos. Puede ponderarase, ya que recibe los K registros más cercanos completos.
+def scoreKNN(list):
+	aux = 0
+	for i in range(0:len(list)-1):
+		aux += list[i][4]
+	return aux/len(list)
+
+# Devuelve una lista con los K registros más cercanos.	
+def closestKNN(list, k):
+	
+	
+def processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
+	test.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo), x)) \
+		.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])\
+		.groupByKey()\
+		.join(knnRDD)\
+		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0:len(x[1]) - 1)])\
+		.map(lambda x: (x[0][0],x[0][1],x[0][2],x[0][3],scoreKNN(closestKNN(x[2],k))))
 	
 
 def prediccionesCoinciden(prediccion1, prediccion2):
 	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
+
 
 def main():
 	# Loading the data.
@@ -150,7 +169,7 @@ def main():
 		
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsKNN = ProcessKNN(knnRDD, test)
+		predictionsKNN = processKNN(knnRDD, test)
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
@@ -158,7 +177,7 @@ def main():
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsNB = ProcessNB(naiveRDD, test)
+		predictionsNB = processNB(naiveRDD, test)
 		
 		# Comparamos las 2 predicciones. Las que 'coinciden' las consideramos correctas y
 		# ya parte de la solucion final. Las utilizamos para anexarlas al set de train. 
