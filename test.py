@@ -92,7 +92,7 @@ def normalize(vector):
 	aux = 0
 	for i in range(0, len(vector)):
 		aux += vector[i]
-	return [x[i]/aux for i in range(0, len(vector))]
+	return [float(vector[i])/aux for i in range(0, len(vector))]
 
 def NBTrainingRDD(trainRDD):
 	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
@@ -100,10 +100,28 @@ def NBTrainingRDD(trainRDD):
 		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
 		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
 		.map(lambda x: (x[0], normalize(x[1])))
+		
+def processNB(trainRDD, test):
+	test.map(lambda x: (x[0], x[1].split(), x[2])\
+		.flatMap(lambda x: [(word, (x[0], x[2])) for word in x[1]])\
+		.join(trainRDD)\
+		.map(lambda x: (x[1][0][0],x[1][1])) # (IDr, Vector de frecuencias)
+		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+		.map(lambda x: (x[0], getPrediction(x[1])))
+
+def getPrediction(vectorFrecuencias):
+	max = 0
+	prediction = -1
+	
+	for i in range(0, len(vectorFrecuencias)):
+		if (vectorFrecuencias[i] > max):
+			prediction = i
+	
+	return prediction
 
 def main():
 	# Loading the data.
-	data = sc.textFile('data/train.csv')
+	data = sc.textFile('reduced data/train_reduce.csv')
 	
 	# Get the header.
 	headerData = data.first()
