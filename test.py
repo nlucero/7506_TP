@@ -90,9 +90,16 @@ def addFrequency(scoringList, scoring):
 
 def normalize(vector):
 	aux = 0
-	for i in range(0, len(vector)-1):
+	for i in range(0, len(vector)):
 		aux += vector[i]
-	return [x[i]/aux for i in range(0, len(vector)-1)]
+	return [x[i]/aux for i in range(0, len(vector))]
+
+def NBTrainingRDD(trainRDD):
+	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
+		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
+		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
+		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+		.map(lambda x: (x[0], normalize(x[1])))
 
 def main():
 	# Loading the data.

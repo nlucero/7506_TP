@@ -1,7 +1,7 @@
 import pyspark
 import re
 import math
-
+sc
 MARGEN_COINCIDENCIA = 0.5
 
 # Lista de stopwords
