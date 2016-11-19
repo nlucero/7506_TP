@@ -86,8 +86,9 @@ def process_row(x):
 
 def KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
 	return trainRDD.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, hashNumber), x)) \
-				   .flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])\
-				   .groupByKey()
+			.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0, len(x[0]))])\
+			.groupByKey()
+
 
 
 def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHashesPorGrupo):
@@ -205,7 +206,9 @@ def main():
 		
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
+
 		predictionsKNN = processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
+
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))

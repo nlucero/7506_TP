@@ -1,0 +1,100 @@
+TRAINING:
+---------
+(1, (ID, Training A, HelpNum, HelpDen, 0))
+(1, (ID, Training B, HelpNum, HelpDen, 1))
+(2, (ID, Training C, HelpNum, HelpDen, 5))
+(2, (ID, Training D, HelpNum, HelpDen, 5))
+(2, (ID, Training E, HelpNum, HelpDen, 4))
+(3, (ID, Training F, HelpNum, HelpDen, 3))
+(4, (ID, Training G, HelpNum, HelpDen, 2))
+(4, (ID, Training H, HelpNum, HelpDen, 3))
+(4, (ID, Training I, HelpNum, HelpDen, 2))
+(4, (ID, Training J, HelpNum, HelpDen, 1))
+(6, (ID, Training K, HelpNum, HelpDen, 0))
+
+|
+| CLUSTERS DEL VECTOR KNN:
+|
+
+(1, [(ID, Training A, HelpNum, HelpDen, 0), (ID, Training B, HelpNum, HelpDen, 1)])
+(2, [(ID, Training C, HelpNum, HelpDen, 5), (ID, Training D, HelpNum, HelpDen, 5), (ID, Training E, HelpNum, HelpDen, 4)])
+(3, [(ID, Training F, HelpNum, HelpDen, 3)])
+(4, [(ID, Training G, HelpNum, HelpDen, 2), (ID, Training H, HelpNum, HelpDen, 3), (ID, Training I, HelpNum, HelpDen, 2), (ID, Training J, HelpNum, HelpDen, 1)])
+(6, [(ID, Training K, HelpNum, HelpDen, 0)])
+
+---------
+PRUEBAS:
+---------
+
+([1,3], (ID, Prueba A, HelpNum, HelpDen))
+([4], (ID, Prueba B, HelpNum, HelpDen))
+([1,5], (ID, Prueba C, HelpNum, HelpDen))
+([3,4], (ID, Prueba D, HelpNum, HelpDen))
+([2], (ID, Prueba E, HelpNum, HelpDen))
+([3,4,6], (ID, Prueba F, HelpNum, HelpDen))
+
+|
+| SEPARO POR HASH Y AGRUPO FORMANDO CLUSTERS
+|
+
+(1, [(ID, Prueba A, HelpNum, HelpDen), (ID, Prueba C, HelpNum, HelpDen)])
+(2, [(ID, Prueba E, HelpNum, HelpDen)])
+(3, [(ID, Prueba A, HelpNum, HelpDen), (ID, Prueba D, HelpNum, HelpDen), (ID, Prueba F, HelpNum, HelpDen)])
+(4, [(ID, Prueba B, HelpNum, HelpDen), (ID, Prueba D, HelpNum, HelpDen), (ID, Prueba F, HelpNum, HelpDen)])
+(5, [(ID, Prueba C, HelpNum, HelpDen)])
+(6, [(ID, Prueba F, HelpNum, HelpDen)])
+
+|
+| JOINEO CON EL TRAINING POR CLUSTERS
+|
+
+(1, ([(ID, Prueba A, HelpNum, HelpDen), (ID, Prueba C, HelpNum, HelpDen)]), ([(ID, Training A, HelpNum, HelpDen, 0), (ID, Training B, HelpNum, HelpDen, 1)]))
+(2, ([(ID, Prueba E, HelpNum, HelpDen)]), ([(ID, Training C, HelpNum, HelpDen, 5), (ID, Training D, HelpNum, HelpDen, 5), (ID, Training E, HelpNum, HelpDen, 4)]))
+(3, ([(ID, Prueba A, HelpNum, HelpDen), (ID, Prueba D, HelpNum, HelpDen), (ID, Prueba F, HelpNum, HelpDen)]), ([(ID, Training F, HelpNum, HelpDen, 3)]))
+(4, ([(ID, Prueba B, HelpNum, HelpDen), (ID, Prueba D, HelpNum, HelpDen), (ID, Prueba F, HelpNum, HelpDen)]), ([(ID, Training G, HelpNum, HelpDen, 2), (ID, Training H, HelpNum, HelpDen, 3), (ID, Training I, HelpNum, HelpDen, 2), (ID, Training J, HelpNum, HelpDen, 1)]))
+(6, ([(ID, Prueba F, HelpNum, HelpDen)]), ([(ID, Training K, HelpNum, HelpDen, 0)]))
+
+|
+| REMAPEO, SEPARANDO LAS PRUEBAS, CADA UNA CON TODOS LOS TRAINING (NO NECESITAMOS EL HASH NUMBER):
+|
+
+((ID, Prueba A, HelpNum, HelpDen), [(ID, Training A, HelpNum, HelpDen, 0), (ID, Training B, HelpNum, HelpDen, 1)])
+((ID, Prueba C, HelpNum, HelpDen), [(ID, Training A, HelpNum, HelpDen, 0), (ID, Training B, HelpNum, HelpDen, 1)])
+((ID, Prueba E, HelpNum, HelpDen), [(ID, Training C, HelpNum, HelpDen, 5), (ID, Training D, HelpNum, HelpDen, 5), (ID, Training E, HelpNum, HelpDen, 4)])
+((ID, Prueba A, HelpNum, HelpDen), [(ID, Training F, HelpNum, HelpDen, 3)])
+((ID, Prueba D, HelpNum, HelpDen), [(ID, Training F, HelpNum, HelpDen, 3)])
+((ID, Prueba F, HelpNum, HelpDen), [(ID, Training F, HelpNum, HelpDen, 3)])
+((ID, Prueba B, HelpNum, HelpDen), [(ID, Training G, HelpNum, HelpDen, 2), (ID, Training H, HelpNum, HelpDen, 3), (ID, Training I, HelpNum, HelpDen, 2), (ID, Training J, HelpNum, HelpDen, 1)])
+((ID, Prueba D, HelpNum, HelpDen), [(ID, Training G, HelpNum, HelpDen, 2), (ID, Training H, HelpNum, HelpDen, 3), (ID, Training I, HelpNum, HelpDen, 2), (ID, Training J, HelpNum, HelpDen, 1)])
+((ID, Prueba F, HelpNum, HelpDen), [(ID, Training G, HelpNum, HelpDen, 2), (ID, Training H, HelpNum, HelpDen, 3), (ID, Training I, HelpNum, HelpDen, 2), (ID, Training J, HelpNum, HelpDen, 1)])
+((ID, Prueba F, HelpNum, HelpDen), [(ID, Training K, HelpNum, HelpDen, 0)])
+
+|
+| ME QUEDO CON LOS K TEXTOS MÁS CERCANOS
+|
+
+((ID, Prueba A, HelpNum, HelpDen), [(ID, Training B, HelpNum, HelpDen, 1)])
+((ID, Prueba C, HelpNum, HelpDen), [(ID, Training A, HelpNum, HelpDen, 0)])
+((ID, Prueba E, HelpNum, HelpDen), [(ID, Training C, HelpNum, HelpDen, 5)])
+((ID, Prueba A, HelpNum, HelpDen), [(ID, Training F, HelpNum, HelpDen, 3)])
+((ID, Prueba D, HelpNum, HelpDen), [(ID, Training F, HelpNum, HelpDen, 3)])
+((ID, Prueba F, HelpNum, HelpDen), [(ID, Training F, HelpNum, HelpDen, 3)])
+((ID, Prueba B, HelpNum, HelpDen), [(ID, Training H, HelpNum, HelpDen, 3)])
+((ID, Prueba D, HelpNum, HelpDen), [(ID, Training G, HelpNum, HelpDen, 2)])
+((ID, Prueba F, HelpNum, HelpDen), [(ID, Training G, HelpNum, HelpDen, 2)])
+((ID, Prueba F, HelpNum, HelpDen), [(ID, Training K, HelpNum, HelpDen, 0)])
+
+|
+| ARMO EL PUNTAJE COMO PROMEDIO DE LOS SCORING DE LOS K MÁS CERCANOS
+|
+
+(ID, Prueba A, HelpNum, HelpDen, SCORE)
+(ID, Prueba C, HelpNum, HelpDen, SCORE)
+(ID, Prueba E, HelpNum, HelpDen, SCORE)
+(ID, Prueba A, HelpNum, HelpDen, SCORE)
+(ID, Prueba D, HelpNum, HelpDen, SCORE)
+(ID, Prueba F, HelpNum, HelpDen, SCORE)
+(ID, Prueba B, HelpNum, HelpDen, SCORE)
+(ID, Prueba D, HelpNum, HelpDen, SCORE)
+(ID, Prueba F, HelpNum, HelpDen, SCORE)
+(ID, Prueba F, HelpNum, HelpDen, SCORE)
