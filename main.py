@@ -54,6 +54,7 @@ try:
 except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
+	
 def custom_split(string, separator):	
 	activated = True
 	token_start_pos = 0
@@ -70,6 +71,7 @@ def custom_split(string, separator):
 	
 	return return_value
 
+
 def process_row(x):
 	# Obtenemos todas las palabras del texto
 	textWords = re.sub("[^\w]", " ",  x[9]).split()
@@ -79,13 +81,13 @@ def process_row(x):
 	nonStopWords = ' '.join(nonStopWords)
 		
 	# (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction)
-	return x[0], nonStopWords, x[4], x[5], x[6]
+	return x[0], nonStopWords, x[6]
 		
 
 def KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
 	return trainRDD.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, hashNumber), x)) \
-			.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])
-			.groupByKey()
+				   .flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])\
+				   .groupByKey()
 
 
 def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHashesPorGrupo):
@@ -108,13 +110,66 @@ def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHash
 	return result
 
 
-def ProcessKNN(knnRDD, test):
-	test.
+# Obtiene el puntaje en base a los K más cercanos. Puede ponderarase, ya que recibe los K registros más cercanos completos.
+def scoreKNN(list):
+	aux = 0
+	for i in range(0:len(list)-1):
+		aux += list[i][4]
+	return aux/len(list)
+
+# Devuelve una lista con los K registros más cercanos.	
+def closestKNN(list, k):
+	
+	
+def processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
+	test.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo), x)) \
+		.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])\
+		.groupByKey()\
+		.join(knnRDD)\
+		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0:len(x[1]) - 1)])\
+		.map(lambda x: (x[0][0],x[0][1],x[0][2],x[0][3],scoreKNN(closestKNN(x[2],k))))
 	
 
 def prediccionesCoinciden(prediccion1, prediccion2):
 	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
 
+def addFrequency(scoringList, scoring):
+	scoring = int(scoring)
+	scoringList[scoring - 1] = scoringList[scoring - 1] + 1
+	return scoringList
+
+def normalize(vector):
+	aux = 0
+	for i in range(0, len(vector)-1):
+		aux += vector[i]
+	return [x[i]/aux for i in range(0, len(vector)-1)]
+
+def NBTrainingRDD(trainRDD):
+	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
+	   .flatMap(lambda x: [(word, x[1]) for word in x[0]])
+	   .map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
+	   .reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+	   .map(lambda x: (x[0], normalize(x[1])))
+
+
+def processNB(trainRDD, test):
+	test.map(lambda x: (x[0], x[1].split(), x[2])\
+		.flatMap(lambda x: [(word, (x[0], x[2])) for word in x[1]])\
+		.join(trainRDD)\
+		.map(lambda x: (x[1][0][0],x[1][1])) # (IDr, Vector de frecuencias)
+		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+		.map(lambda x: (x[0], getPrediction(x[1])))
+
+def getPrediction(vectorFrecuencias):
+	max = 0
+	prediction = -1
+	
+	for i in range(0, len(vectorFrecuencias) - 1):
+		if (vectorFrecuencias[i] > max):
+			prediction = i
+	
+	return prediction
+	
 def main():
 	# Loading the data.
 	data = sc.textFile('data/train.csv')
@@ -146,11 +201,11 @@ def main():
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		knnRDD = KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, hashNumber)
+		knnRDD = KNNTrainingRDD(knnRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
 		
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsKNN = ProcessKNN(knnRDD, test)
+		predictionsKNN = processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
@@ -158,7 +213,7 @@ def main():
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsNB = ProcessNB(naiveRDD, test)
+		predictionsNB = processNB(naiveRDD, test)
 		
 		# Comparamos las 2 predicciones. Las que 'coinciden' las consideramos correctas y
 		# ya parte de la solucion final. Las utilizamos para anexarlas al set de train. 
