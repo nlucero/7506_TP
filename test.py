@@ -135,7 +135,8 @@ def getPrediction(vectorFrecuencias):
 
 def main():
 	# Loading the data.
-	data = sc.textFile('reduced data/train_reduce.csv')
+	#data = sc.textFile('reduced data/train_reduce.csv')
+	data = sc.textFile('data/train.csv')
 	test = sc.textFile('data/test.csv')
 	
 	# Get the header.
