@@ -58,6 +58,7 @@ try:
 except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
+
 def hash_universal_string(string, a, m):
 	h = ord(string[0])
 	
@@ -68,6 +69,7 @@ def hash_universal_string(string, a, m):
 
 def hash_int(num, a, m):	
 	return ((a * num) % p) % m
+
 	
 def custom_split(string, separator):	
 	activated = True
@@ -97,6 +99,7 @@ def process_train_row(x):
 	# (Id, Text, Prediction)
 	return x[0], nonStopWords, x[6]
 
+
 def process_test_row(x):
 	# Obtenemos todas las palabras del texto
 	textWords = re.sub("[^\w]", " ",  x[8]).split()
@@ -109,8 +112,8 @@ def process_test_row(x):
 	return x[0], nonStopWords
 		
 
-def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction):
-	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH), x)) \
+def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
+	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
 			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction),x[1][2])) for i in range(0, len(x[0]))])\
 			.groupByKey()
 
@@ -124,7 +127,7 @@ def tht(review, dimTHT, hashTHT):
 		output[idx] =+ 1
 
 
-def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH):
+def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH):
 	hashNumber = hashesGroups * hashesPerGroup
 	kShingles = [ review[i:i+shingleSize] for i in range(0, len(review) - shingleSize + 1) ]
 	minhashes = [ dimMH for i in range (0,hashNumber)]
@@ -139,7 +142,7 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH):
 	# En este punto, la lista result tiene todos los minhashes.
 
 	for grp in range(0,hashesGroups):
-		result.append(hashFunction(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1],dimMH))
+		result.append(hashCluster(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1],dimMH))
 		
 	return result
 
@@ -147,14 +150,22 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH):
 # Obtiene el puntaje en base a los K mas cercanos. Puede ponderarase, ya que recibe los K registros mas cercanos completos.
 def scoreKNN(list):
 	aux = 0
-	for i in range(0, len(list)-1):
-		aux += list[i][4]
+	for i in range(0, len(list)):
+		aux += list[i]
 	return aux/len(list)
+
 
 # Devuelve una lista con los K registros mas cercanos.	
 def closestKNN(list, k):
-	return None
+	closest = []
+
+	for review in list:
+		if len(closest) < k
+			closest.append((list[]))
+
+	return closest
 	
+
 def processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
 	test.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo), x)) \
 		.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0, len(x[0]) - 1)])\
@@ -167,10 +178,12 @@ def processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashe
 def prediccionesCoinciden(prediccion1, prediccion2):
 	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
 
+
 def addFrequency(scoringList, scoring):
 	scoring = int(scoring)
 	scoringList[scoring - 1] = scoringList[scoring - 1] + 1
 	return scoringList
+
 
 def normalize(vector):
 	aux = 0
@@ -178,12 +191,14 @@ def normalize(vector):
 		aux += vector[i]
 	return [float(vector[i])/aux for i in range(0, len(vector))]
 
+
 def trainingNB(trainRDD):
 	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
 		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
 		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
 		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
 		.map(lambda x: (x[0], normalize(x[1])))
+
 		
 def processNB(trainRDD, test):
 	return test.map(lambda x: (x[0], x[1].split()))\
@@ -193,6 +208,7 @@ def processNB(trainRDD, test):
 		.reduceByKey(lambda x,y: [x[i] * y[i] for i in range(0, len(x))])\
 		.map(lambda x: (x[0], [x[1][i] * probabilidadClases[i] for i in range(0, len(x[1]))]))\
 		.map(lambda x: (x[0], getPrediction(x[1])))
+
 
 def getPrediction(vectorFrecuencias):
 	max = 0
@@ -205,6 +221,7 @@ def getPrediction(vectorFrecuencias):
 	
 	return (prediction + 1)
 	
+
 def main():
 	# Loading the data.
 	data = sc.textFile('data/train.csv')
