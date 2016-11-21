@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 import pyspark
 import re
 import math
@@ -9,7 +12,7 @@ probabilidadClases = []
 p = 32452843
 
 # Lista de stopwords
-# Source:
+# Source: http://xpo6.com/list-of-english-stop-words
 stopwords = ["a", "about", "above", "above", "across", "after", 
 "afterwards", "again", "against", "all", "almost", "alone", "along", 
 "already", "also","although","always","am","among", "amongst", 
@@ -58,6 +61,16 @@ try:
 except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
+<<<<<<< HEAD
+=======
+def hash_universal_vector_numeros(vector, params, m):
+	counter = 0
+	
+	for i in range(0, len(vector)):
+		counter += ((vector[i] * params[i]) % p)
+	
+	return counter % m
+>>>>>>> c37c049794edb87b9d83e62eb813842022e5ca26
 
 def hash_universal_string(string, a, m):
 	h = ord(string[0])
