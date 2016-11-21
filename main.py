@@ -103,11 +103,11 @@ def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGro
 
 
 def tht(review, dimTHT, hashTHT):
-	output = [ 0 for i in range(0,k) ]
+	output = [ 0 for i in range(0,dimTHT) ]
 
-	# Utilizamos los valores a = 100 y b = 100 para la función de hash.
+	# Luego de varias pruebas, decidimos utilizar a = 100 para la función de hash de THT.
 	for word in review:
-		idx = hashTHT(word, 100, 100, k)
+		idx = hashTHT(word, 100, dimTHT)
 		output[idx] =+ 1
 
 
@@ -126,7 +126,7 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH):
 	# En este punto, la lista result tiene todos los minhashes.
 
 	for grp in range(0,hashesGroups):
-		result.append(hashFunction(minhashes[grp*cantHashesPorGrupo:grp*cantHashesPorGrupo+cantHashesPorGrupo-1],k))
+		result.append(hashFunction(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1],dimMH))
 		
 	return result
 
