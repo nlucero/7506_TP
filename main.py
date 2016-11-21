@@ -1,8 +1,9 @@
 import pyspark
 import re
 import math
-sc
+
 MARGEN_COINCIDENCIA = 0.5
+probabilidadClases = []
 
 # Lista de stopwords
 # Source:
@@ -72,7 +73,7 @@ def custom_split(string, separator):
 	return return_value
 
 
-def process_row(x):
+def process_train_row(x):
 	# Obtenemos todas las palabras del texto
 	textWords = re.sub("[^\w]", " ",  x[9]).split()
 	
@@ -80,8 +81,19 @@ def process_row(x):
 	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
 	nonStopWords = ' '.join(nonStopWords)
 		
-	# (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction)
+	# (Id, Text, Prediction)
 	return x[0], nonStopWords, x[6]
+
+def process_test_row(x):
+	# Obtenemos todas las palabras del texto
+	textWords = re.sub("[^\w]", " ",  x[8]).split()
+	
+	# Filtramos las stop words
+	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
+	nonStopWords = ' '.join(nonStopWords)
+		
+	# (Id, Text)
+	return x[0], nonStopWords
 		
 
 def KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
@@ -141,35 +153,36 @@ def addFrequency(scoringList, scoring):
 
 def normalize(vector):
 	aux = 0
-	for i in range(0, len(vector)-1):
+	for i in range(0, len(vector)):
 		aux += vector[i]
-	return [x[i]/aux for i in range(0, len(vector)-1)]
+	return [float(vector[i])/aux for i in range(0, len(vector))]
 
 def NBTrainingRDD(trainRDD):
 	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
-	   .flatMap(lambda x: [(word, x[1]) for word in x[0]])
-	   .map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
-	   .reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
-	   .map(lambda x: (x[0], normalize(x[1])))
-
-
-def processNB(trainRDD, test):
-	test.map(lambda x: (x[0], x[1].split(), x[2])\
-		.flatMap(lambda x: [(word, (x[0], x[2])) for word in x[1]])\
-		.join(trainRDD)\
-		.map(lambda x: (x[1][0][0],x[1][1])) # (IDr, Vector de frecuencias)
+		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
+		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
 		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+		.map(lambda x: (x[0], normalize(x[1])))
+		
+def processNB(trainRDD, test):
+	return test.map(lambda x: (x[0], x[1].split()))\
+		.flatMap(lambda x: [(word, x[0]) for word in x[1]])\
+		.join(trainRDD)\
+		.map(lambda x: x[1])\
+		.reduceByKey(lambda x,y: [x[i] * y[i] for i in range(0, len(x))])\
+		.map(lambda x: (x[0], [x[1][i] * probabilidadClases[i] for i in range(0, len(x[1]))]))\
 		.map(lambda x: (x[0], getPrediction(x[1])))
 
 def getPrediction(vectorFrecuencias):
 	max = 0
 	prediction = -1
 	
-	for i in range(0, len(vectorFrecuencias) - 1):
+	for i in range(0, len(vectorFrecuencias)):
 		if (vectorFrecuencias[i] > max):
+			max = vectorFrecuencias[i]
 			prediction = i
 	
-	return prediction
+	return (prediction + 1)
 	
 def main():
 	# Loading the data.
@@ -186,16 +199,22 @@ def main():
 
 	# Process each row
 	data = data.map(lambda line: custom_split(line, ','))\
-			   .map(lambda r: process_row(r))\
-			   
+			   .map(lambda r: process_train_row(r))
+	
 	test = test.map(lambda line: custom_split(line, ','))\
-			   .map(lambda r: process_row(r))\		
+			   .map(lambda r: process_test_row(r))
+	
+	# Armamos vector de probabilidades por clase	
+	frecuenciasClases = data.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
+		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
+	global probabilidadClases
+	probabilidadClases = normalize(frecuenciasClases)
 	
 	trainRDD = data
 	faultRDD = None
 	successExit = None
 	
-	for i in range(1,iterations):
+	for i in range(1, iterations):
 		
 		# Retroalimenta el trainRDD con los datos que se consiguen predecir correctamente.
 		trainRDD = injectData(trainRDD, coincidenciasRDD)
