@@ -109,28 +109,36 @@ def process_test_row(x):
 	return x[0], nonStopWords
 		
 
-def KNNTrainingRDD(trainRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
-	return trainRDD.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, hashNumber), x)) \
-			.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0, len(x[0]))])\
+def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction):
+	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH), x)) \
+			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction),x[1][2])) for i in range(0, len(x[0]))])\
 			.groupByKey()
 
 
+def tht(review, dimTHT, hashTHT):
+	output = [ 0 for i in range(0,k) ]
 
-def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHashesPorGrupo):
-	hashNumber = cantGrupos * cantHashesPorGrupo
-	kShingles = [ string[i:i+shingleSize] for i in range(0, len(string) - shingleSize + 1) ]
-	minhashes = [k for i in range(1, hashNumber)]
+	# Utilizamos los valores a = 100 y b = 100 para la función de hash.
+	for word in review:
+		idx = hashTHT(word, 100, 100, k)
+		output[idx] =+ 1
+
+
+def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, dimMH):
+	hashNumber = hashesGroups * hashesPerGroup
+	kShingles = [ review[i:i+shingleSize] for i in range(0, len(review) - shingleSize + 1) ]
+	minhashes = [ dimMH for i in range (0,hashNumber)]
 	result = []
-	
-	for shingle in kShingles:
-		for function in range(0, hashNumber-1):
-			tmp = minhashFamily(shingle,function)
-			if tmp < minhashes[hashNumber-1]:
-				minhashes[hashNumber-1] = tmp
-				
-	# En este punto, result tiene todos los minhashes
-	
-	for grp in range(0,cantGrupos-1):
+
+	for shingles in kShingles:
+		for function in range(0, hashNumber):
+			tmp = hashFunction(shingle, function, dimMH)
+			if tmp < minhashes[hashNumber]:
+				minhashes[hashNumber] = tmp
+
+	# En este punto, la lista result tiene todos los minhashes.
+
+	for grp in range(0,hashesGroups):
 		result.append(hashFunction(minhashes[grp*cantHashesPorGrupo:grp*cantHashesPorGrupo+cantHashesPorGrupo-1],k))
 		
 	return result
@@ -170,7 +178,7 @@ def normalize(vector):
 		aux += vector[i]
 	return [float(vector[i])/aux for i in range(0, len(vector))]
 
-def NBTrainingRDD(trainRDD):
+def trainingNB(trainRDD):
 	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
 		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
 		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
@@ -234,17 +242,15 @@ def main():
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		knnRDD = KNNTrainingRDD(knnRDD, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
+		knnRDD = trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction)
 		
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-
 		predictionsKNN = processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
-
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
-		naiveRDD = NBTrainingRDD()
+		naiveRDD = trainingNB(trainRDD)
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
