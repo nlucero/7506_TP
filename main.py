@@ -5,6 +5,9 @@ import math
 MARGEN_COINCIDENCIA = 0.5
 probabilidadClases = []
 
+# Numero primo muy grande
+p = 32452843
+
 # Lista de stopwords
 # Source:
 stopwords = ["a", "about", "above", "above", "across", "after", 
@@ -55,6 +58,16 @@ try:
 except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
+def hash_universal_string(string, a, m):
+	h = ord(string[0])
+	
+	for i in range(1, len(string)):
+		h = ((h * a) + ord(string[i])) % p
+	
+	return hash_int(h, a, m)
+
+def hash_int(num, a, m):	
+	return ((a * num) % p) % m
 	
 def custom_split(string, separator):	
 	activated = True
@@ -123,23 +136,23 @@ def LSH(string, k, shingleSize, hashFunction, minhashFamly, cantGrupos, cantHash
 	return result
 
 
-# Obtiene el puntaje en base a los K más cercanos. Puede ponderarase, ya que recibe los K registros más cercanos completos.
+# Obtiene el puntaje en base a los K mas cercanos. Puede ponderarase, ya que recibe los K registros mas cercanos completos.
 def scoreKNN(list):
 	aux = 0
-	for i in range(0:len(list)-1):
+	for i in range(0, len(list)-1):
 		aux += list[i][4]
 	return aux/len(list)
 
-# Devuelve una lista con los K registros más cercanos.	
+# Devuelve una lista con los K registros mas cercanos.	
 def closestKNN(list, k):
-	
+	return None
 	
 def processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
 	test.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo), x)) \
-		.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0:len(x[0]) - 1)])\
+		.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0, len(x[0]) - 1)])\
 		.groupByKey()\
 		.join(knnRDD)\
-		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0:len(x[1]) - 1)])\
+		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]) - 1)])\
 		.map(lambda x: (x[0][0],x[0][1],x[0][2],x[0][3],scoreKNN(closestKNN(x[2],k))))
 	
 
@@ -243,7 +256,7 @@ def main():
 		coincidenciasRDD = predictionsKNN.join(predictionsNB)\
 										 .filter(lambda x: prediccionesCoinciden(x[1][0], x[1][1]))
 		test = predictionsKNN.join(predictionsNB)\
-								  .filter(lamba x: not prediccionesCoinciden(x[1][0], x[1][1]))
+								  .filter(lambda x: not prediccionesCoinciden(x[1][0], x[1][1]))
 								  
 		successExit = appendSuccessfuly(successExit, coincidenciasRDD)
 	
