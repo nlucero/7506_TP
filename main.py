@@ -61,8 +61,7 @@ try:
 except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
-<<<<<<< HEAD
-=======
+
 def hash_universal_vector_numeros(vector, params, m):
 	counter = 0
 	
@@ -70,7 +69,7 @@ def hash_universal_vector_numeros(vector, params, m):
 		counter += ((vector[i] * params[i]) % p)
 	
 	return counter % m
->>>>>>> c37c049794edb87b9d83e62eb813842022e5ca26
+
 
 def hash_universal_string(string, a, m):
 	h = ord(string[0])
@@ -79,6 +78,7 @@ def hash_universal_string(string, a, m):
 		h = ((h * a) + ord(string[i])) % p
 	
 	return hash_int(h, a, m)
+
 
 def hash_int(num, a, m):	
 	return ((a * num) % p) % m
