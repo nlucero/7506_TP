@@ -153,7 +153,6 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashClu
 				minhashes[hashNumber] = tmp
 
 	# En este punto, la lista result tiene todos los minhashes.
-
 	for grp in range(0,hashesGroups):
 		result.append(hashCluster(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1],dimMH))
 		
@@ -168,25 +167,45 @@ def scoreKNN(list):
 	return aux/len(list)
 
 
+# Calcula la distancia euclídea.
+def distance(vec1, vec2):
+	dist = 0
+	for i in range(0,len(vec1)):
+		dist += (vec1[i] - vec2[i])**2
+	return math.sqrt(dist)
+
+
 # Devuelve una lista con los K registros mas cercanos.	
-def closestKNN(list, k):
+def closestKNN(query, list, k):
+	# La lista closest será de la forma (score,distance).
 	closest = []
 
 	for review in list:
-		if len(closest) < k
-			closest.append((list[]))
+		dist = distance(query,review[1])
+		if len(closest) < k:
+			closest.append((list[2],dist))
+			closest = sorted(closest,key=(lambda x: x[1]))
+		else:
+			if closest[len(closest)-1][1] > dist:
+				closest[len(closest)-1] = (review[2],dist)
 
-	return closest
+	return [ closest[i][0] for i in range(0,len(closest)) ]
 	
 
-def processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo):
-	test.map(lambda x: (LSH(x[1], k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo), x)) \
-		.flatMap(lambda x: [(x[0][i],x[1]) for i in range(0, len(x[0]) - 1)])\
+def processKNN(knnRDD, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
+	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+		# Me quedo con registros de la forma ([#Hash, ...], (ID, Review))
+		.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction) for i in range(0, len(x[0]) - 1)])\
+		# Me quedo con registros de la forma (#Hash, (ID, Vector Review))
 		.groupByKey()\
+		# Me quedo con registros de la forma (#Hash, [(ID, Vector Review), ...])
 		.join(knnRDD)\
-		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]) - 1)])\
-		.map(lambda x: (x[0][0],x[0][1],x[0][2],x[0][3],scoreKNN(closestKNN(x[2],k))))
-	
+		# Me quedo con registros de la forma (#Hash, ([(ID, Vector Review), ...], [(ID, Vector Train, Score), ...])
+		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]))])\
+		# Me quedo con registros de la forma ((ID, Vector Review), [(ID, Vector Train, Score), ...])
+		.map(lambda x: (x[0][0],scoreKNN(closestKNN(x[0][1],x[2],k))))
+		# Me quedo con registros de la forma (ID, Vector Review,
+
 
 def prediccionesCoinciden(prediccion1, prediccion2):
 	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
