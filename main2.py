@@ -101,29 +101,35 @@ def custom_split(string, separator):
 	return return_value
 
 
-def process_train_row(x):
+def mode_return(mode, x, nonStopWords):
+	switcher = {
+		1: (x[0], nonStopWords, x[6]),
+		2: (x[0], nonStopWords),
+		3: (x[0], nonStopWords, x[2]),
+		4: (x[0], nonStopWords), 
+	}
+	return switcher.get(mode, None)
+
+def mode_index(mode)
+	switcher = {
+		1: 9,
+		2: 8,
+		3: 1,
+		4: 1,
+	}
+	return switcher.get(mode, None)
+
+def process_row(x, mode):
+	idx = mode_index(mode)
 	# Obtenemos todas las palabras del texto
-	textWords = re.sub("[^\w]", " ",  x[9]).split()
+	textWords = re.sub("[^\w]", " ",  x[idx]).split()
 	
 	# Filtramos las stop words
 	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
 	nonStopWords = ' '.join(nonStopWords)
-		
-	# (Id, Text, Prediction)
-	return x[0], nonStopWords, x[6]
-
-
-def process_test_row(x):
-	# Obtenemos todas las palabras del texto
-	textWords = re.sub("[^\w]", " ",  x[8]).split()
 	
-	# Filtramos las stop words
-	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
-	nonStopWords = ' '.join(nonStopWords)
-		
-	# (Id, Text)
-	return x[0], nonStopWords
-		
+	return mode_return(mode, x, nonStopWords)
+
 
 def filterStopWord(vector):
 	sw = True
@@ -231,6 +237,10 @@ def prediccionesCoinciden(prediccion1, prediccion2):
 	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
 
 
+def collectingStopWords(vecNB):
+	return vecNB.filter(lambda x: filterStopWord(x[1])).map(lambda x: x[0]).collect()
+
+
 def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
 	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
 			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction),x[1][2])) for i in range(0, len(x[0]))])\
@@ -297,10 +307,10 @@ def main():
 
 	# Process each row
 	data = data.map(lambda line: custom_split(line, ','))\
-			   .map(lambda r: process_train_row(r))
+			   .map(lambda r: process_row(r,1))
 	
 	test = test.map(lambda line: custom_split(line, ','))\
-			   .map(lambda r: process_test_row(r))
+			   .map(lambda r: process_row(r,2))
 	
 	# Armamos vector de probabilidades por clase	
 	frecuenciasClases = data.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
@@ -311,9 +321,9 @@ def main():
 	trainRDD = data
 	faultRDD = None
 	successExit = None
-	
+
 	for i in range(1, iterations):
-		
+
 		# Retroalimenta el trainRDD con los datos que se consiguen predecir correctamente.
 		# El formato del set de entrenamiento es (ID, Review, Score)
 		trainRDD = injectData(trainRDD, coincidenciasRDD)
@@ -321,7 +331,7 @@ def main():
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
 		knnRDD = trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction)
-		
+
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
 		predictionsKNN = processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
@@ -329,6 +339,7 @@ def main():
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
 		naiveRDD = trainingNB(trainRDD)
+		stopwords = collectingStopWords(naiveRDD)
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
@@ -338,13 +349,18 @@ def main():
 		# ya parte de la solucion final. Las utilizamos para anexarlas al set de train. 
 		# Las que no coinciden, las volvemos a calcular
 		coincidenciasRDD = predictionsKNN.join(predictionsNB)\
-							# Obtenemos registros de la forma (ID, ((Review, Score), Score))
-							.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))
-							.map(lambda x: (x[0],x[1][0][0],x[1][0][1]))
+							# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
+							.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))\
+							# Eliminación de las stop words para lso reprocesamientos
+							.map(lambda x: process_row((x[0],x[1][0][0],x[1][0][1]),3))
 		test = predictionsKNN.join(predictionsNB)\
-							.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))
-							.map(lambda x: (x[0],x[1][0][0]))
-								  
+							.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))\
+							# Eliminación de las stop words para lso reprocesamientos
+							.map(lambda x: process_row((x[0],x[1][0][0]),4))
+		
+		coindicenciasRDD = coincidenciasRDD.map(lambda r: process_row(r,3))
+		test = test.map(lambda r: process_row(r,4))
+
 		successExit = appendSuccessfuly(successExit, coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2])))))
 	
 	return successExit
