@@ -125,6 +125,16 @@ def process_test_row(x):
 	return x[0], nonStopWords
 		
 
+def filterStopWord(vector):
+	sw = True
+	
+	for freq in vector:
+		if abs(freq - 1/len(vector)) > MARGEN_STOPWORDS:
+			sw = False
+			
+	return sw
+
+
 # Calcula cual es el vector que representa a la review por THT con la función de hash dada.		
 def tht(review, dimTHT, hashTHT):
 	output = [ 0 for i in range(0,dimTHT) ]
