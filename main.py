@@ -207,6 +207,7 @@ def closestKNN(query, list, k):
 		else:
 			if closest[len(closest)-1][1] > dist:
 				closest[len(closest)-1] = (review[2],dist)
+				closest = sorted(closest,key=(lambda x: x[1]))
 
 	return [ closest[i][0] for i in range(0,len(closest)) ]
 	
@@ -250,8 +251,11 @@ def collectingStopWords(vecNB):
 
 def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
 	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+			# Me quedo con registros de la forma ([#Hash, ...], (ID, Review, Score))
 			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction),x[1][2])) for i in range(0, len(x[0]))])\
+			# Me quedo con registros de la forma (#Hash, (ID, Vector Train, Score))
 			.groupByKey()
+			# Me quedo con registros de la forma (#Hash, [(ID, Vector Train, Score), ...]) -> Agrupados por #Hash
 
 
 def processKNN(knnRDD, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
@@ -364,6 +368,24 @@ def processingTrain(train, newInput):
 	return train
 	
 	
+def feedback(predictionsKNN,predictionsNB):
+	# Comparamos las 2 predicciones.
+	# Las que 'coinciden' serán parte de la solución final y las anexamos al set de train.
+	# Las que no coinciden, las recalculamos.
+	coincidenciasRDD = predictionsKNN.join(predictionsNB)\
+				# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
+				.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))\
+				# Eliminación de las stop words para los reprocesamientos (en modo 3).
+				.map(lambda x: process_row((x[0],x[1][0][0],x[1][0][1]),3))
+	test = predictionsKNN.join(predictionsNB)\
+	# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
+				.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))\
+				# Eliminación de las stop words para los reprocesamientos (en modo 4).
+				.map(lambda x: process_row((x[0],x[1][0][0]),4))
+	
+	return coincidenciasRDD, test
+	
+	
 def createCSV(outputRDD):
 	outputRDD.map(lambda x: rdd_to_csv(x)).repartition(1).saveAsTextFile(OUTPUT_FOLDER)
 	shutil.move('./' + OUTPUT_FOLDER + '/part-00000', './output.csv')
@@ -372,20 +394,20 @@ def createCSV(outputRDD):
 
 def main():
 		
-	trainRDD, test = preprocessingSets('data/train.csv', 'data/test.csv')
+	train, test = preprocessingSets('data/train.csv', 'data/test.csv')
 	coincidenciasRDD = None
 	exitSuccess = None
 	random.seed()
 	
 	for i in range(0, ITERATIONS):
 
-		# Retroalimenta el trainRDD con los datos que se consiguen predecir correctamente.
+		# Retroalimenta el train con los datos que se consiguen predecir correctamente.
 		# El formato del set de entrenamiento es (ID, Review, Score)
-		trainRDD = processingTrain(trainRDD, coincidenciasRDD)
+		train = processingTrain(train, coincidenciasRDD)
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		knnRDD = trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster)
+		knnRDD = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster)
 
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
@@ -393,28 +415,17 @@ def main():
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
-		naiveRDD = trainingNB(trainRDD)
+		naiveRDD = trainingNB(train)
 		stopwords = collectingStopWords(naiveRDD)
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
 		predictionsNB = processNB(naiveRDD, test)
 		
-		# Comparamos las 2 predicciones. Las que 'coinciden' las consideramos correctas y
-		# ya parte de la solucion final. Las utilizamos para anexarlas al set de train. 
-		# Las que no coinciden, las volvemos a calcular
-		coincidenciasRDD = predictionsKNN.join(predictionsNB)\
-							# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
-							.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))\
-							# Eliminación de las stop words para los reprocesamientos (en modo 3).
-							.map(lambda x: process_row((x[0],x[1][0][0],x[1][0][1]),3))
-		test = predictionsKNN.join(predictionsNB)\
-							.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))\
-							# Eliminación de las stop words para los reprocesamientos (en modo 4).
-							.map(lambda x: process_row((x[0],x[1][0][0]),4))
-		
+		coincidenciasRDD, test = feedback(predictionsKNN,predictionsNB)
 		exitSuccess = appendSuccessfully(exitSuccess, coincidenciasRDD.map(lambda x: (x[0],x[1])))
 		
+		# Reacondicionar el set de datos correctos para retroalimentar el set de entrenamiento.
 		coincidenciasRDD = coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2]))))		
 
 	createCSV(exitSuccess)
