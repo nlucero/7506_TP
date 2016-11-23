@@ -15,6 +15,13 @@ MARGEN_COINCIDENCIA = 0.5
 MARGEN_STOPWORDS = 0.01
 ITERATIONS = 10
 
+# Parametros definidos mediante pruebas (para KNN).
+dimTHT = 
+dimMH = 380 			# Utilizamos 380 ya que, un buen número de clusters a utilizar es la raíz cuadrada del número de datos.
+shingleSize =
+hashesGroups =
+hashesPerGroup =
+
 # Numero primo muy grande
 p = 32452843
 
@@ -69,7 +76,7 @@ except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
 
-def hash_universal_vector_numeros(vector, params, m):
+def hashVEC(vector, params, m):
 	counter = 0
 	
 	for i in range(0, len(vector)):
@@ -78,7 +85,7 @@ def hash_universal_vector_numeros(vector, params, m):
 	return counter % m
 
 
-def hash_universal_string(string, a, m):
+def hashSTR(string, a, m):
 	h = ord(string[0])
 	
 	for i in range(1, len(string)):
@@ -87,7 +94,7 @@ def hash_universal_string(string, a, m):
 	return hash_int(h, a, m)
 
 
-def hash_int(num, a, m):	
+def hashINT(num, a, m):	
 	return ((a * num) % p) % m
 
 	
@@ -249,32 +256,32 @@ def collectingStopWords(vecNB):
 	return vecNB.filter(lambda x: filterStopWord(x[1])).map(lambda x: x[0]).collect()
 
 
-def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
-	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+def trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
+	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
 			# Me quedo con registros de la forma ([#Hash, ...], (ID, Review, Score))
-			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction),x[1][2])) for i in range(0, len(x[0]))])\
+			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashTHT),x[1][2])) for i in range(0, len(x[0]))])\
 			# Me quedo con registros de la forma (#Hash, (ID, Vector Train, Score))
 			.groupByKey()
 			# Me quedo con registros de la forma (#Hash, [(ID, Vector Train, Score), ...]) -> Agrupados por #Hash
 
 
-def processKNN(knnRDD, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
+def processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
 	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
 		# Me quedo con registros de la forma ([#Hash, ...], (ID, Review))
 		.flatMap(lambda x: [(x[0][i],(x[1][0],x[1][1])) for i in range(0, len(x[0]) - 1)])\
 		# Me quedo con registros de la forma (#Hash, (ID, Review))
 		.groupByKey()\
 		# Me quedo con registros de la forma (#Hash, [(ID, Review), ...])
-		.join(knnRDD)\
+		.join(trainKNN)\
 		# Me quedo con registros de la forma (#Hash, ([(ID, Review), ...], [(ID, Vector Train, Score), ...])
 		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]))])\
 		# Me quedo con registros de la forma ((ID, Review), [(ID, Vector Train, Score), ...])
-		.map(lambda x: (x[0][0],(x[0][1],scoreKNN(closestKNN(tht(x[0][1],dimTHT,hashFunction),x[2],k)))))
+		.map(lambda x: (x[0][0],(x[0][1],scoreKNN(closestKNN(tht(x[0][1],dimTHT,hashTHT),x[2],k)))))
 		# Me quedo con registros de la forma (ID, (Review, Score))
 
 
-def trainingNB(trainRDD):
-	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
+def trainingNB(train):
+	return train.map(lambda x: (x[1].split(), x[2]))\
 		# Me quedo con registros de la forma ([Palabras, ...], Score)
 		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
 		# Me quedo con registros de la forma (Palabra, Score)
@@ -286,12 +293,12 @@ def trainingNB(trainRDD):
 		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias) -> Agrupados por Palabra (sumando frecuencias) y Normalizado
 
 		
-def processNB(trainRDD, test):
+def processNB(train, test):
 	return test.map(lambda x: (x[0], x[1].split()))\
 		# Me quedo con registros de la forma (ID, [Palabras, ...])
 		.flatMap(lambda x: [(word, x[0]) for word in x[1]])\
 		# Me quedo con registros de la forma (Palabra, ID)
-		.join(trainRDD)\
+		.join(train)\
 		# Me quedo con registros de la forma (Palabra, (ID, Vector de Frecuencias))
 		.map(lambda x: x[1])\
 		# Me quedo con registros de la forma (ID, Vector de Frecuencias)
@@ -407,20 +414,20 @@ def main():
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		knnRDD = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster)
+		trainKNN = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
 
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsKNN = processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
+		predictionsKNN = processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
-		naiveRDD = trainingNB(train)
-		stopwords = collectingStopWords(naiveRDD)
+		trainNB = trainingNB(train)
+		stopwords = collectingStopWords(trainNB)
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsNB = processNB(naiveRDD, test)
+		predictionsNB = processNB(trainNB, test)
 		
 		coincidenciasRDD, test = feedback(predictionsKNN,predictionsNB)
 		exitSuccess = appendSuccessfully(exitSuccess, coincidenciasRDD.map(lambda x: (x[0],x[1])))
