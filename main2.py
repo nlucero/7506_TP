@@ -4,8 +4,11 @@
 import pyspark
 import re
 import math
+import shutil
 
 MARGEN_COINCIDENCIA = 0.5
+MARGEN_STOPWORDS = 0.01
+OUTPUT_FOLDER = 'output'
 probabilidadClases = []
 
 # Numero primo muy grande
@@ -135,7 +138,7 @@ def filterStopWord(vector):
 	sw = True
 	
 	for freq in vector:
-		if abs(freq - 1/len(vector)) > MARGEN_STOPWORDS:
+		if abs(freq - float(1)/len(vector)) > MARGEN_STOPWORDS:
 			sw = False
 			
 	return sw
@@ -292,10 +295,24 @@ def processNB(trainRDD, test):
 		# Me quedo con registros de la forma (ID, Score)
 	
 
-def main():
+def appendSuccessfully(output, newSuccess):
+	return output.union(newSuccess)
+
+
+def injectData(train, newInput):
+	if not newInput:
+		return train
+	return train.union(newInput)
+
+
+def rdd_to_csv(data):
+	return ','.join(str(field) for field in data)
+
+
+def preprocesamientoSet(dataPath, testPath):
 	# Loading the data.
-	data = sc.textFile('data/train.csv')
-	test = sc.textFile('data/test.csv')
+	data = sc.textFile(dataPath)
+	test = sc.textFile(testPath)
 
 	# Get the header.
 	headerData = data.first()
@@ -315,12 +332,23 @@ def main():
 	# Armamos vector de probabilidades por clase	
 	frecuenciasClases = data.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
 		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
+	
 	global probabilidadClases
 	probabilidadClases = normalize(frecuenciasClases)
-	
-	trainRDD = data
-	faultRDD = None
-	successExit = None
+
+	return data, test
+
+
+def createCSV(outputRDD):
+	outputRDD.map(lambda x: rdd_to_csv(x)).repartition(1).saveAsTextFile(OUTPUT_FOLDER)
+	shutil.move('./' + OUTPUT_FOLDER + '/part-00000', './output.csv')
+	shutil.rmtree('./' + OUTPUT_FOLDER)
+
+
+def main():
+		
+	trainRDD, test = preprocesamientoSet('data/train.csv', 'data/test.csv')
+	coincidenciasRDD = None
 
 	for i in range(1, iterations):
 
@@ -358,12 +386,12 @@ def main():
 							# Eliminación de las stop words para lso reprocesamientos
 							.map(lambda x: process_row((x[0],x[1][0][0]),4))
 		
-		coindicenciasRDD = coincidenciasRDD.map(lambda r: process_row(r,3))
-		test = test.map(lambda r: process_row(r,4))
+		coincidenciasRDD = coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2]))))
 
-		successExit = appendSuccessfuly(successExit, coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2])))))
-	
-	return successExit
+		exitSuccess = appendSuccessfully(exitSuccess, coincidenciasRDD.map(lambda x: (x[0],x[1])))
+
+	createCSV(exitSuccess)
+
 	
 if __name__ == "__main__":
     main()
