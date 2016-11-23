@@ -4,9 +4,23 @@
 import pyspark
 import re
 import math
+import random
+import shutil
 
-MARGEN_COINCIDENCIA = 0.5
+OUTPUT_FOLDER = 'output'
 probabilidadClases = []
+
+# Parametros definidos mediante pruebas.
+MARGEN_COINCIDENCIA = 0.5
+MARGEN_STOPWORDS = 0.01
+ITERATIONS = 10
+
+# Parametros definidos mediante pruebas (para KNN).
+dimTHT = 
+dimMH = 380 			# Utilizamos 380 ya que, un buen número de clusters a utilizar es la raíz cuadrada del número de datos.
+shingleSize =
+hashesGroups =
+hashesPerGroup =
 
 # Numero primo muy grande
 p = 32452843
@@ -62,7 +76,7 @@ except NameError:
 	sc = pyspark.SparkContext('local[*]')    
 
 
-def hash_universal_vector_numeros(vector, params, m):
+def hashVEC(vector, params, m):
 	counter = 0
 	
 	for i in range(0, len(vector)):
@@ -71,7 +85,7 @@ def hash_universal_vector_numeros(vector, params, m):
 	return counter % m
 
 
-def hash_universal_string(string, a, m):
+def hashSTR(string, a, m):
 	h = ord(string[0])
 	
 	for i in range(1, len(string)):
@@ -80,7 +94,7 @@ def hash_universal_string(string, a, m):
 	return hash_int(h, a, m)
 
 
-def hash_int(num, a, m):	
+def hashINT(num, a, m):	
 	return ((a * num) % p) % m
 
 	
@@ -101,45 +115,57 @@ def custom_split(string, separator):
 	return return_value
 
 
-def process_train_row(x):
+def mode_return(mode, x, nonStopWords):
+	switcher = {
+		1: (x[0], nonStopWords, x[6]),
+		2: (x[0], nonStopWords),
+		3: (x[0], nonStopWords, x[2]),
+		4: (x[0], nonStopWords), 
+	}
+	return switcher.get(mode, None)
+
+def mode_index(mode):
+	switcher = {
+		1: 9,
+		2: 8,
+		3: 1,
+		4: 1,
+	}
+	return switcher.get(mode, None)
+
+def process_row(x, mode):
+	idx = mode_index(mode)
 	# Obtenemos todas las palabras del texto
-	textWords = re.sub("[^\w]", " ",  x[9]).split()
+	textWords = re.sub("[^\w]", " ",  x[idx]).split()
 	
 	# Filtramos las stop words
 	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
 	nonStopWords = ' '.join(nonStopWords)
-		
-	# (Id, Text, Prediction)
-	return x[0], nonStopWords, x[6]
-
-
-def process_test_row(x):
-	# Obtenemos todas las palabras del texto
-	textWords = re.sub("[^\w]", " ",  x[8]).split()
 	
-	# Filtramos las stop words
-	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
-	nonStopWords = ' '.join(nonStopWords)
-		
-	# (Id, Text)
-	return x[0], nonStopWords
-		
-
-def trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
-	return trainRDD.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
-			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction),x[1][2])) for i in range(0, len(x[0]))])\
-			.groupByKey()
+	return mode_return(mode, x, nonStopWords)
 
 
+def filterStopWord(vector):
+	sw = True
+	
+	for freq in vector:
+		if abs(freq - float(1)/len(vector)) > MARGEN_STOPWORDS:
+			sw = False
+			
+	return sw
+
+
+# Calcula cual es el vector que representa a la review por THT con la función de hash dada.		
 def tht(review, dimTHT, hashTHT):
 	output = [ 0 for i in range(0,dimTHT) ]
 
 	# Luego de varias pruebas, decidimos utilizar a = 100 para la función de hash de THT.
 	for word in review:
 		idx = hashTHT(word, 100, dimTHT)
-		output[idx] =+ 1
-
-
+		output[idx] =+ 1		
+		
+		
+# Calcula los clusters donde deberá almacenarse la review.
 def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH):
 	hashNumber = hashesGroups * hashesPerGroup
 	kShingles = [ review[i:i+shingleSize] for i in range(0, len(review) - shingleSize + 1) ]
@@ -156,8 +182,8 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashClu
 	for grp in range(0,hashesGroups):
 		result.append(hashCluster(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1],dimMH))
 		
-	return result
-
+	return result		
+		
 
 # Obtiene el puntaje en base a los K mas cercanos. Puede ponderarase, ya que recibe los K registros mas cercanos completos.
 def scoreKNN(list):
@@ -188,35 +214,19 @@ def closestKNN(query, list, k):
 		else:
 			if closest[len(closest)-1][1] > dist:
 				closest[len(closest)-1] = (review[2],dist)
+				closest = sorted(closest,key=(lambda x: x[1]))
 
 	return [ closest[i][0] for i in range(0,len(closest)) ]
 	
 
-def processKNN(knnRDD, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster):
-	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
-		# Me quedo con registros de la forma ([#Hash, ...], (ID, Review))
-		.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFunction) for i in range(0, len(x[0]) - 1)])\
-		# Me quedo con registros de la forma (#Hash, (ID, Vector Review))
-		.groupByKey()\
-		# Me quedo con registros de la forma (#Hash, [(ID, Vector Review), ...])
-		.join(knnRDD)\
-		# Me quedo con registros de la forma (#Hash, ([(ID, Vector Review), ...], [(ID, Vector Train, Score), ...])
-		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]))])\
-		# Me quedo con registros de la forma ((ID, Vector Review), [(ID, Vector Train, Score), ...])
-		.map(lambda x: (x[0][0],scoreKNN(closestKNN(x[0][1],x[2],k))))
-		# Me quedo con registros de la forma (ID, Vector Review,
-
-
-def prediccionesCoinciden(prediccion1, prediccion2):
-	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
-
-
+# Agrega al listado de frecuencias la correspondiente en base al puntaje de la review.
 def addFrequency(scoringList, scoring):
 	scoring = int(scoring)
 	scoringList[scoring - 1] = scoringList[scoring - 1] + 1
 	return scoringList
 
 
+# Normaliza el vector de frecuencias (probabilidad total = 1).
 def normalize(vector):
 	aux = 0
 	for i in range(0, len(vector)):
@@ -224,24 +234,7 @@ def normalize(vector):
 	return [float(vector[i])/aux for i in range(0, len(vector))]
 
 
-def trainingNB(trainRDD):
-	return trainRDD.map(lambda x: (x[1].split(), x[2]))\
-		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
-		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
-		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
-		.map(lambda x: (x[0], normalize(x[1])))
-
-		
-def processNB(trainRDD, test):
-	return test.map(lambda x: (x[0], x[1].split()))\
-		.flatMap(lambda x: [(word, x[0]) for word in x[1]])\
-		.join(trainRDD)\
-		.map(lambda x: x[1])\
-		.reduceByKey(lambda x,y: [x[i] * y[i] for i in range(0, len(x))])\
-		.map(lambda x: (x[0], [x[1][i] * probabilidadClases[i] for i in range(0, len(x[1]))]))\
-		.map(lambda x: (x[0], getPrediction(x[1])))
-
-
+# Obtiene la predicción como la de frecuencia máxima entre las 5 clases.	
 def getPrediction(vectorFrecuencias):
 	max = 0
 	prediction = -1
@@ -254,10 +247,96 @@ def getPrediction(vectorFrecuencias):
 	return (prediction + 1)
 	
 
-def main():
+# Chequea si la predicción de Naïve-Bayes coincide con la de KNN bajo el margen de error admitido.	
+def prediccionesCoinciden(prediccion1, prediccion2):
+	return abs(prediccion1 - prediccion2) <= MARGEN_COINCIDENCIA
+
+
+def collectingStopWords(vecNB):
+	return vecNB.filter(lambda x: filterStopWord(x[1])).map(lambda x: x[0]).collect()
+
+
+def trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
+	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+			# Me quedo con registros de la forma ([#Hash, ...], (ID, Review, Score))
+			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashTHT),x[1][2])) for i in range(0, len(x[0]))])\
+			# Me quedo con registros de la forma (#Hash, (ID, Vector Train, Score))
+			.groupByKey()
+			# Me quedo con registros de la forma (#Hash, [(ID, Vector Train, Score), ...]) -> Agrupados por #Hash
+
+
+def processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
+	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+		# Me quedo con registros de la forma ([#Hash, ...], (ID, Review))
+		.flatMap(lambda x: [(x[0][i],(x[1][0],x[1][1])) for i in range(0, len(x[0]) - 1)])\
+		# Me quedo con registros de la forma (#Hash, (ID, Review))
+		.groupByKey()\
+		# Me quedo con registros de la forma (#Hash, [(ID, Review), ...])
+		.join(trainKNN)\
+		# Me quedo con registros de la forma (#Hash, ([(ID, Review), ...], [(ID, Vector Train, Score), ...])
+		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]))])\
+		# Me quedo con registros de la forma ((ID, Review), [(ID, Vector Train, Score), ...])
+		.map(lambda x: (x[0][0],(x[0][1],scoreKNN(closestKNN(tht(x[0][1],dimTHT,hashTHT),x[2],k)))))
+		# Me quedo con registros de la forma (ID, (Review, Score))
+
+
+def trainingNB(train):
+	return train.map(lambda x: (x[1].split(), x[2]))\
+		# Me quedo con registros de la forma ([Palabras, ...], Score)
+		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
+		# Me quedo con registros de la forma (Palabra, Score)
+		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
+		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias)
+		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias) -> Agrupados por Palabra
+		.map(lambda x: (x[0], normalize(x[1])))
+		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias) -> Agrupados por Palabra (sumando frecuencias) y Normalizado
+
+		
+def processNB(train, test):
+	return test.map(lambda x: (x[0], x[1].split()))\
+		# Me quedo con registros de la forma (ID, [Palabras, ...])
+		.flatMap(lambda x: [(word, x[0]) for word in x[1]])\
+		# Me quedo con registros de la forma (Palabra, ID)
+		.join(train)\
+		# Me quedo con registros de la forma (Palabra, (ID, Vector de Frecuencias))
+		.map(lambda x: x[1])\
+		# Me quedo con registros de la forma (ID, Vector de Frecuencias)
+		.reduceByKey(lambda x,y: [x[i] * y[i] for i in range(0, len(x))])\
+		# Me quedo con registros de la forma (ID, Vector de Frecuencias) -> Agrupados por ID (multiplicando frecuencias)
+		.map(lambda x: (x[0], [x[1][i] * probabilidadClases[i] for i in range(0, len(x[1]))]))\
+		# Me quedo con registros de la forma (ID, Vector de Frecuencias) -> Agrupados por ID (multiplicando frecuencias y por frecuencia de Clase)
+		.map(lambda x: (x[0], getPrediction(x[1])))
+		# Me quedo con registros de la forma (ID, Score)
+	
+
+def appendSuccessfully(output, newSuccess):
+	if not output:
+		return newSuccess
+	return output.union(newSuccess)
+
+
+def injectData(train, newInput):
+	if not newInput:
+		return train
+	return train.union(newInput)
+
+
+def rdd_to_csv(data):
+	return ','.join(str(field) for field in data)
+
+
+def classProbability(train):
+	frecuenciasClases = train.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
+		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
+	
+	return normalize(frecuenciasClases)
+	
+	
+def preprocessingSets(dataPath, testPath):
 	# Loading the data.
-	data = sc.textFile('data/train.csv')
-	test = sc.textFile('data/test.csv')
+	data = sc.textFile(dataPath)
+	test = sc.textFile(testPath)
 
 	# Get the header.
 	headerData = data.first()
@@ -269,53 +348,95 @@ def main():
 
 	# Process each row
 	data = data.map(lambda line: custom_split(line, ','))\
-			   .map(lambda r: process_train_row(r))
+			   .map(lambda r: process_row(r,1))
 	
 	test = test.map(lambda line: custom_split(line, ','))\
-			   .map(lambda r: process_test_row(r))
+			   .map(lambda r: process_row(r,2))
+
+	return data, test
+
+
+def processingTrain(train, newInput):
+	# Retroalimentamos el set de entrenamiento con las nuevas salidas correctas.
+	train = injectData(train, newInput)
+
+	train14 = train.filter(lambda x: x[2] < 5)
+	# Ya que el set de datos está desbalanceado (cerca del 60% de las calificaciones son 5)
+	# optamos por no utilizar en las comparaciones todas las reviews de puntuación máxima,
+	# evitar que todas tiendan a 5. Por eso, en cada iteración, trabajaremos con solo el 20%
+	# de las reseñas de valor 5, eligiéndolas de una manera pseudo-random.
+	train5 = train.filter(lambda x: x[2] == 5 && random.random() < 0.2)
+	train = train14.union(train5)
 	
 	# Armamos vector de probabilidades por clase	
-	frecuenciasClases = data.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
-		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
 	global probabilidadClases
-	probabilidadClases = normalize(frecuenciasClases)
+	probabilidadClases = classProbability(train)
 	
-	trainRDD = data
-	faultRDD = None
-	successExit = None
+	return train
 	
-	for i in range(1, iterations):
+	
+def feedback(predictionsKNN,predictionsNB):
+	# Comparamos las 2 predicciones.
+	# Las que 'coinciden' serán parte de la solución final y las anexamos al set de train.
+	# Las que no coinciden, las recalculamos.
+	coincidenciasRDD = predictionsKNN.join(predictionsNB)\
+				# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
+				.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))\
+				# Eliminación de las stop words para los reprocesamientos (en modo 3).
+				.map(lambda x: process_row((x[0],x[1][0][0],x[1][0][1]),3))
+	test = predictionsKNN.join(predictionsNB)\
+	# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
+				.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))\
+				# Eliminación de las stop words para los reprocesamientos (en modo 4).
+				.map(lambda x: process_row((x[0],x[1][0][0]),4))
+	
+	return coincidenciasRDD, test
+	
+	
+def createCSV(outputRDD):
+	outputRDD.map(lambda x: rdd_to_csv(x)).repartition(1).saveAsTextFile(OUTPUT_FOLDER)
+	shutil.move('./' + OUTPUT_FOLDER + '/part-00000', './output.csv')
+	shutil.rmtree('./' + OUTPUT_FOLDER)
+
+
+def main():
 		
-		# Retroalimenta el trainRDD con los datos que se consiguen predecir correctamente.
-		trainRDD = injectData(trainRDD, coincidenciasRDD)
+	train, test = preprocessingSets('data/train.csv', 'data/test.csv')
+	coincidenciasRDD = None
+	exitSuccess = None
+	random.seed()
+	
+	for i in range(0, ITERATIONS):
+
+		# Retroalimenta el train con los datos que se consiguen predecir correctamente.
+		# El formato del set de entrenamiento es (ID, Review, Score)
+		train = processingTrain(train, coincidenciasRDD)
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		knnRDD = trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster)
-		
+		trainKNN = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
+
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsKNN = processKNN(knnRDD, test, k, shingleSize, hashFunction, cantGrupos, cantHashesPorGrupo)
+		predictionsKNN = processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
-		naiveRDD = trainingNB(trainRDD)
+		trainNB = trainingNB(train)
+		stopwords = collectingStopWords(trainNB)
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsNB = processNB(naiveRDD, test)
+		predictionsNB = processNB(trainNB, test)
 		
-		# Comparamos las 2 predicciones. Las que 'coinciden' las consideramos correctas y
-		# ya parte de la solucion final. Las utilizamos para anexarlas al set de train. 
-		# Las que no coinciden, las volvemos a calcular
-		coincidenciasRDD = predictionsKNN.join(predictionsNB)\
-										 .filter(lambda x: prediccionesCoinciden(x[1][0], x[1][1]))
-		test = predictionsKNN.join(predictionsNB)\
-								  .filter(lambda x: not prediccionesCoinciden(x[1][0], x[1][1]))
-								  
-		successExit = appendSuccessfuly(successExit, coincidenciasRDD)
-	
-	return successExit
+		coincidenciasRDD, test = feedback(predictionsKNN,predictionsNB)
+		exitSuccess = appendSuccessfully(exitSuccess, coincidenciasRDD.map(lambda x: (x[0],x[1])))
+		
+		# Reacondicionar el set de datos correctos para retroalimentar el set de entrenamiento.
+		coincidenciasRDD = coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2]))))		
+
+	createCSV(exitSuccess)
+
 	
 if __name__ == "__main__":
     main()
