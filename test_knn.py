@@ -276,12 +276,6 @@ def main():
 	
 	test = test.map(lambda line: custom_split(line, ','))\
 			   .map(lambda r: process_test_row(r))
-	
-	# Armamos vector de probabilidades por clase	
-	frecuenciasClases = data.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
-		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
-	global probabilidadClases
-	probabilidadClases = normalize(frecuenciasClases)
-	
+		
 			
 	return data, test
