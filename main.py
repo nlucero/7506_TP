@@ -4,6 +4,7 @@
 import pyspark
 import re
 import math
+import random
 import shutil
 
 OUTPUT_FOLDER = 'output'
@@ -314,7 +315,14 @@ def rdd_to_csv(data):
 	return ','.join(str(field) for field in data)
 
 
-def preprocesamientoSet(dataPath, testPath):
+def classProbability(train):
+	frecuenciasClases = train.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
+		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
+	
+	return normalize(frecuenciasClases)
+	
+	
+def preprocessingSets(dataPath, testPath):
 	# Loading the data.
 	data = sc.textFile(dataPath)
 	test = sc.textFile(testPath)
@@ -333,17 +341,29 @@ def preprocesamientoSet(dataPath, testPath):
 	
 	test = test.map(lambda line: custom_split(line, ','))\
 			   .map(lambda r: process_row(r,2))
-	
-	# Armamos vector de probabilidades por clase	
-	frecuenciasClases = data.map(lambda x: addFrequency([0, 0, 0, 0, 0], x[2]))\
-		.reduce(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])	
-	
-	global probabilidadClases
-	probabilidadClases = normalize(frecuenciasClases)
 
 	return data, test
 
 
+def processingTrain(train, newInput):
+	# Retroalimentamos el set de entrenamiento con las nuevas salidas correctas.
+	train = injectData(train, newInput)
+
+	train14 = train.filter(lambda x: x[2] < 5)
+	# Ya que el set de datos está desbalanceado (cerca del 60% de las calificaciones son 5)
+	# optamos por no utilizar en las comparaciones todas las reviews de puntuación máxima,
+	# evitar que todas tiendan a 5. Por eso, en cada iteración, trabajaremos con solo el 20%
+	# de las reseñas de valor 5, eligiéndolas de una manera pseudo-random.
+	train5 = train.filter(lambda x: x[2] == 5 && random.random() < 0.2)
+	train = train14.union(train5)
+	
+	# Armamos vector de probabilidades por clase	
+	global probabilidadClases
+	probabilidadClases = classProbability(train)
+	
+	return train
+	
+	
 def createCSV(outputRDD):
 	outputRDD.map(lambda x: rdd_to_csv(x)).repartition(1).saveAsTextFile(OUTPUT_FOLDER)
 	shutil.move('./' + OUTPUT_FOLDER + '/part-00000', './output.csv')
@@ -352,15 +372,16 @@ def createCSV(outputRDD):
 
 def main():
 		
-	trainRDD, test = preprocesamientoSet('data/train.csv', 'data/test.csv')
+	trainRDD, test = preprocessingSets('data/train.csv', 'data/test.csv')
 	coincidenciasRDD = None
 	exitSuccess = None
-
+	random.seed()
+	
 	for i in range(0, ITERATIONS):
 
 		# Retroalimenta el trainRDD con los datos que se consiguen predecir correctamente.
 		# El formato del set de entrenamiento es (ID, Review, Score)
-		trainRDD = injectData(trainRDD, coincidenciasRDD)
+		trainRDD = processingTrain(trainRDD, coincidenciasRDD)
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
@@ -385,16 +406,16 @@ def main():
 		coincidenciasRDD = predictionsKNN.join(predictionsNB)\
 							# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
 							.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))\
-							# Eliminación de las stop words para lso reprocesamientos
+							# Eliminación de las stop words para los reprocesamientos (en modo 3).
 							.map(lambda x: process_row((x[0],x[1][0][0],x[1][0][1]),3))
 		test = predictionsKNN.join(predictionsNB)\
 							.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))\
-							# Eliminación de las stop words para lso reprocesamientos
+							# Eliminación de las stop words para los reprocesamientos (en modo 4).
 							.map(lambda x: process_row((x[0],x[1][0][0]),4))
 		
-		coincidenciasRDD = coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2]))))
-
 		exitSuccess = appendSuccessfully(exitSuccess, coincidenciasRDD.map(lambda x: (x[0],x[1])))
+		
+		coincidenciasRDD = coincidenciasRDD.map(lambda x: (x[0],x[1],int(round(x[2]))))		
 
 	createCSV(exitSuccess)
 
