@@ -1,0 +1,9 @@
+144333 palabras distintas (sin contar stop words)
+
+Sale de: 
+data.map(lambda x: x[1])
+    .flatMap(lambda x: x.split())
+    .map(lambda x: (x, 1))
+    .reduceByKey(lambda x, y: 1)
+    .map(lambda x: x[1])
+    .reduce(lambda x, y: x + y)

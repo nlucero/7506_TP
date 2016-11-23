@@ -291,7 +291,7 @@ def main():
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		knnRDD = trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction)
+		knnRDD = trainingKNN(trainRDD, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster)
 		
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
