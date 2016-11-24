@@ -14,13 +14,6 @@ MARGEN_COINCIDENCIA = 0.5
 MARGEN_STOPWORDS = 0.01
 ITERATIONS = 10
 
-# Parametros definidos mediante pruebas (para KNN).
-dimTHT = 56736		# Definimos este valor admitiendo un error máximo del 5% según el teorema de J-L.
-dimMH = 380 		# Definimos este valor tomando la raíz cuadrada del número de datos.
-shingleSize = 8
-hashesGroups = 4
-hashesPerGroup = 4
-
 # Numero primo muy grande
 p = 32452843
 
@@ -97,7 +90,17 @@ def hashSTR(string, a, m):
 def hashINT(num, a, m):	
 	return ((a * num) % p) % m
 
-	
+# Parametros definidos mediante pruebas (para KNN).
+dimTHT = 56736		# Definimos este valor admitiendo un error máximo del 5% según el teorema de J-L.
+dimMH = 380 		# Definimos este valor tomando la raíz cuadrada del número de datos.
+shingleSize = 8
+hashesGroups = 4
+hashesPerGroup = 4
+hashFunction = hashSTR
+hashCluster = hashVEC
+hashVECparams = [ math.floor(1 + random.random() * (dimMH - 2)) for i in range(0, dimMH)]
+
+
 def custom_split(string, separator):	
 	activated = True
 	token_start_pos = 0
@@ -159,8 +162,9 @@ def tht(review, dimTHT, hashTHT):
 	# Luego de varias pruebas, decidimos utilizar a = 100 para la función de hash de THT.
 	for word in review:
 		idx = hashTHT(word, 100, dimTHT)
-		output[idx] =+ 1		
-		
+		output[idx] += 1
+	
+	return output				
 		
 # Calcula los clusters donde deberá almacenarse la review.
 def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH):
@@ -169,15 +173,15 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashClu
 	minhashes = [ dimMH for i in range (0,hashNumber)]
 	result = []
 
-	for shingles in kShingles:
+	for shingle in kShingles:
 		for function in range(0, hashNumber):
 			tmp = hashFunction(shingle, function, dimMH)
-			if tmp < minhashes[hashNumber]:
-				minhashes[hashNumber] = tmp
+			if tmp < minhashes[function]:
+				minhashes[function] = tmp
 
 	# En este punto, la lista result tiene todos los minhashes.
 	for grp in range(0,hashesGroups):
-		result.append(hashCluster(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1],dimMH))
+		result.append(hashCluster(minhashes[grp*hashesPerGroup:grp*hashesPerGroup+hashesPerGroup-1], hashVECparams, dimMH))
 		
 	return result		
 		
@@ -254,20 +258,23 @@ def collectingStopWords(vecNB):
 
 
 def trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
-	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashCluster, dimMH), x))\
 			# Me quedo con registros de la forma ([#Hash, ...], (ID, Review, Score))
 			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashTHT),x[1][2])) for i in range(0, len(x[0]))])\
 			# Me quedo con registros de la forma (#Hash, (ID, Vector Train, Score))
-			.groupByKey()
+			.groupByKey()\
 			# Me quedo con registros de la forma (#Hash, [(ID, Vector Train, Score), ...]) -> Agrupados por #Hash
+			.map(lambda x: (x[0], list(x[1])))
 
 
 def processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
-	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashCluster, dimMH), x)) \
+	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashCluster, dimMH), x))\
 		# Me quedo con registros de la forma ([#Hash, ...], (ID, Review))
-		.flatMap(lambda x: [(x[0][i],(x[1][0],x[1][1])) for i in range(0, len(x[0]) - 1)])\
+		.flatMap(lambda x: [(x[0][i],(x[1][0],x[1][1])) for i in range(0, len(x[0]))])\
 		# Me quedo con registros de la forma (#Hash, (ID, Review))
 		.groupByKey()\
+		# Me quedo con registros de la forma (#Hash, [(ID, Review), ...])
+		.map(lambda x: (x[0], list(x[1])))\
 		# Me quedo con registros de la forma (#Hash, [(ID, Review), ...])
 		.join(trainKNN)\
 		# Me quedo con registros de la forma (#Hash, ([(ID, Review), ...], [(ID, Vector Train, Score), ...])
