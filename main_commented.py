@@ -5,7 +5,6 @@ import pyspark
 import re
 import math
 import shutil
-import random
 
 OUTPUT_FOLDER = 'output'
 probabilidadClases = []
@@ -91,7 +90,7 @@ def hashSTR(string, a, m):
 def hashINT(num, a, m):	
 	return ((a * num) % p) % m
 
-# Parametros a utilizar.
+# Parametros definidos mediante pruebas (para KNN).
 k = 7
 dimTHT = 56736		# Definimos este valor admitiendo un error máximo del 5% según el teorema de J-L.
 dimMH = 380 		# Definimos este valor tomando la raíz cuadrada del número de datos.
@@ -261,37 +260,59 @@ def collectingStopWords(vecNB):
 
 def trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster):
 	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster, dimMH), x))\
+			# Me quedo con registros de la forma ([#Hash, ...], (ID, Review, Score))
 			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFamily),x[1][2])) for i in range(0, len(x[0]))])\
+			# Me quedo con registros de la forma (#Hash, (ID, Vector Train, Score))
 			.groupByKey()\
+			# Me quedo con registros de la forma (#Hash, [(ID, Vector Train, Score), ...]) -> Agrupados por #Hash
 			.map(lambda x: (x[0], list(x[1])))
 
 
 def processKNN(trainKNN, test, k, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster):
 	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster, dimMH), x))\
+		# Me quedo con registros de la forma ([#Hash, ...], (ID, Review))
 		.flatMap(lambda x: [(x[0][i],(x[1][0],x[1][1])) for i in range(0, len(x[0]))])\
+		# Me quedo con registros de la forma (#Hash, (ID, Review))
 		.groupByKey()\
+		# Me quedo con registros de la forma (#Hash, [(ID, Review), ...])
 		.map(lambda x: (x[0], list(x[1])))\
+		# Me quedo con registros de la forma (#Hash, [(ID, Review), ...])
 		.join(trainKNN)\
+		# Me quedo con registros de la forma (#Hash, ([(ID, Review), ...], [(ID, Vector Train, Score), ...])
 		.flatMap(lambda x: [(x[1][0][i],x[1][1]) for i in range(0, len(x[1][0]))])\
+		# Me quedo con registros de la forma ((ID, Review), [(ID, Vector Train, Score), ...])
 		.map(lambda x: (x[0][0],(x[0][1],scoreKNN(closestKNN(tht(x[0][1],dimTHT,hashFamily),x[1],k)))))
+		# Me quedo con registros de la forma (ID, (Review, Score))
 
 
 def trainingNB(train):
 	return train.map(lambda x: (x[1].split(), x[2]))\
+		# Me quedo con registros de la forma ([Palabras, ...], Score)
 		.flatMap(lambda x: [(word, x[1]) for word in x[0]])\
+		# Me quedo con registros de la forma (Palabra, Score)
 		.map(lambda x: (x[0], addFrequency([0, 0, 0, 0, 0], x[1])))\
+		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias)
 		.reduceByKey(lambda x,y: [x[i] + y[i] for i in range(0, len(x))])\
+		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias) -> Agrupados por Palabra
 		.map(lambda x: (x[0], normalize(x[1])))
+		# Me quedo con registros de la forma (Palabra, Vector de Frecuencias) -> Agrupados por Palabra (sumando frecuencias) y Normalizado
 
 		
 def processNB(train, test):
 	return test.map(lambda x: (x[0], x[1].split()))\
+		# Me quedo con registros de la forma (ID, [Palabras, ...])
 		.flatMap(lambda x: [(word, x[0]) for word in x[1]])\
+		# Me quedo con registros de la forma (Palabra, ID)
 		.join(train)\
+		# Me quedo con registros de la forma (Palabra, (ID, Vector de Frecuencias))
 		.map(lambda x: x[1])\
+		# Me quedo con registros de la forma (ID, Vector de Frecuencias)
 		.reduceByKey(lambda x,y: [x[i] * y[i] for i in range(0, len(x))])\
+		# Me quedo con registros de la forma (ID, Vector de Frecuencias) -> Agrupados por ID (multiplicando frecuencias)
 		.map(lambda x: (x[0], [x[1][i] * probabilidadClases[i] for i in range(0, len(x[1]))]))\
+		# Me quedo con registros de la forma (ID, Vector de Frecuencias) -> Agrupados por ID (multiplicando frecuencias y por frecuencia de Clase)
 		.map(lambda x: (x[0], getPrediction(x[1])))
+		# Me quedo con registros de la forma (ID, Score)
 	
 
 def appendSuccessfully(output, newSuccess):
@@ -378,10 +399,14 @@ def feedback(predictionsKNN,predictionsNB):
 	# Las que 'coinciden' serán parte de la solución final y las anexamos al set de train.
 	# Las que no coinciden, las recalculamos.
 	coincidenciasRDD = predictionsKNN.join(predictionsNB)\
+				# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
 				.filter(lambda x: prediccionesCoinciden(x[1][0][1], x[1][1]))\
+				# Eliminación de las stop words para los reprocesamientos (en modo 3).
 				.map(lambda x: process_row((x[0],x[1][0][0],x[1][0][1]),3))
 	test = predictionsKNN.join(predictionsNB)\
+	# Obtenemos registros de la forma (ID, ((Review, ScoreKNN), ScoreNB))
 				.filter(lambda x: not prediccionesCoinciden(x[1][0][1], x[1][1]))\
+				# Eliminación de las stop words para los reprocesamientos (en modo 4).
 				.map(lambda x: process_row((x[0],x[1][0][0]),4))
 	
 	return coincidenciasRDD, test

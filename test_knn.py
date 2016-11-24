@@ -15,8 +15,6 @@ MARGEN_COINCIDENCIA = 0.5
 MARGEN_STOPWORDS = 0.01
 ITERATIONS = 10
 
-
-
 # Numero primo muy grande
 p = 32452843
 
@@ -95,6 +93,7 @@ def hashINT(num, a, m):
 
 # Parametros definidos mediante pruebas (para KNN).
 #dimTHT = 56738 # Teorema de J-L para e = 0.05
+k = 7
 dimTHT = 10
 dimMH = 380 # math.sqrt(cant_palabras_distintas)
 shingleSize = 8
@@ -197,7 +196,7 @@ def LSH(review, shingleSize, hashesGroups, hashesPerGroup, hashFunction, hashClu
 def scoreKNN(list):
 	aux = 0
 	for i in range(0, len(list)):
-		aux += list[i]
+		aux += int(list[i])
 	return aux/len(list)
 
 
@@ -264,20 +263,21 @@ def collectingStopWords(vecNB):
 	return vecNB.filter(lambda x: filterStopWord(x[1])).map(lambda x: x[0]).collect()
 
 
-def trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
-	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashCluster, dimMH), x))\
-			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashTHT),x[1][2])) for i in range(0, len(x[0]))])\
+def trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster):
+	return train.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster, dimMH), x))\
+			.flatMap(lambda x: [(x[0][i],(x[1][0],tht(x[1][1],dimTHT,hashFamily),x[1][2])) for i in range(0, len(x[0]))])\
 			.groupByKey()\
 			.map(lambda x: (x[0], list(x[1])))
 			
-def processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashFunction, hashCluster):
-	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashTHT, hashCluster, dimMH), x))\
+
+def processKNN(trainKNN, test, k, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster):
+	return test.map(lambda x: (LSH(x[1], shingleSize, hashesGroups, hashesPerGroup, hashFamily, hashCluster, dimMH), x))\
 		.flatMap(lambda x: [(x[0][i],(x[1][0],x[1][1])) for i in range(0, len(x[0]))])\
 		.groupByKey()\
 		.map(lambda x: (x[0], list(x[1])))\
 		.join(trainKNN)\
-		.flatMap(lambda x: [(x[1][i],x[2]) for i in range(0, len(x[1]))])\
-		.map(lambda x: (x[0][0],(x[0][1],scoreKNN(closestKNN(tht(x[0][1],dimTHT,hashTHT),x[2],k)))))		
+		.flatMap(lambda x: [(x[1][0][i],x[1][1]) for i in range(0, len(x[1][0]))])\
+		.map(lambda x: (x[0][0],(x[0][1],scoreKNN(closestKNN(tht(x[0][1],dimTHT,hashFamily),x[1],k)))))		
 
 
 def trainingNB(train):
@@ -390,10 +390,8 @@ def main():
 	#test = sc.textFile('data/test.csv')
 	
 	#train, test = preprocessingSets('data/train.csv', 'data/test.csv')
-	train, test = preprocessingSets('reduced data/train_reduce.csv', 'reduced data/test_reduce.csv')
+	train, test = preprocessingSets('reduced\ data/train_reduce.csv', 'reduced\ data/test_reduce.csv')
 	coincidenciasRDD = None
 	exitSuccess = None
-	random.seed()
-		
 			
 	return train, test
