@@ -91,7 +91,7 @@ def hashSTR(string, a, m):
 	for i in range(1, len(string)):
 		h = ((h * a) + ord(string[i])) % p
 	
-	return hash_int(h, a, m)
+	return hashINT(h, a, m)
 
 
 def hashINT(num, a, m):	
@@ -414,11 +414,11 @@ def main():
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		trainKNN = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
+		trainKNN = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashSTR, hashINT, hashVEC)
 
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsKNN = processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
+		predictionsKNN = processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashSTR, hashINT, hashVEC)
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
