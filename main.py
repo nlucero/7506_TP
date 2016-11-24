@@ -4,7 +4,6 @@
 import pyspark
 import re
 import math
-import random
 import shutil
 
 OUTPUT_FOLDER = 'output'
@@ -16,11 +15,11 @@ MARGEN_STOPWORDS = 0.01
 ITERATIONS = 10
 
 # Parametros definidos mediante pruebas (para KNN).
-dimTHT = 
-dimMH = 380 			# Utilizamos 380 ya que, un buen número de clusters a utilizar es la raíz cuadrada del número de datos.
-shingleSize =
-hashesGroups =
-hashesPerGroup =
+dimTHT = 56736		# Definimos este valor admitiendo un error máximo del 5% según el teorema de J-L.
+dimMH = 380 		# Definimos este valor tomando la raíz cuadrada del número de datos.
+shingleSize = 8
+hashesGroups = 4
+hashesPerGroup = 4
 
 # Numero primo muy grande
 p = 32452843
@@ -73,7 +72,8 @@ stopwords = ["a", "about", "above", "above", "across", "after",
 try: 
 	type(sc)
 except NameError:
-	sc = pyspark.SparkContext('local[*]')    
+	sc = pyspark.SparkContext('local[*]')
+	sc.setLogLevel("FATAL")    
 
 
 def hashVEC(vector, params, m):
@@ -356,24 +356,38 @@ def preprocessingSets(dataPath, testPath):
 	return data, test
 
 
-def processingTrain(train, newInput):
-	# Retroalimentamos el set de entrenamiento con las nuevas salidas correctas.
-	train = injectData(train, newInput)
+def fractionReview5(probabilities):
+	tmp = 0
 
-	train14 = train.filter(lambda x: x[2] < 5)
-	# Ya que el set de datos está desbalanceado (cerca del 60% de las calificaciones son 5)
-	# optamos por no utilizar en las comparaciones todas las reviews de puntuación máxima,
-	# evitar que todas tiendan a 5. Por eso, en cada iteración, trabajaremos con solo el 20%
-	# de las reseñas de valor 5, eligiéndolas de una manera pseudo-random.
-	train5 = train.filter(lambda x: x[2] == 5 && random.random() < 0.2)
-	train = train14.union(train5)
-	
+	for i in range(0,len(probabilities)-1):
+		tmp += probabilities[i]/probabilities[len(probabilities)-1]
+
+	return tmp/(len(probabilities)-1)
+
+
+def processingTrain(train, trainFull, newInput):
+	# Retroalimentamos el set de entrenamiento con las nuevas salidas correctas.
+	trainFull = injectData(trainFull, newInput)
+
 	# Armamos vector de probabilidades por clase	
+	global probabilidadClases
+	probabilidadClases = classProbability(trainFull)
+
+	num = fractionReview5(probabilidadClases)
+
+	train14 = trainFull.filter(lambda x: int(x[2]) < 5)
+	# Ya que el set de datos está desbalanceado (la mayoría de las calificaciones son 5)
+	# optamos por no utilizar en las comparaciones todas las reviews de puntuación máxima,
+	# para evitar que todas tiendan a 5. Por eso, en cada iteración, trabajaremos sólo con
+	# un porcentaje de las reviews de clase 5, obteniéndolo como el promedio de la fracción
+	# que ocupan cada una de las otras probabilidades en el set total.
+	train = train14.union(trainFull.filter(lambda x: int(x[2]) == 5).sample(False,num))	
+
+	# Rearmamos el vector de probabilidades por clase, con la clase 5 ya reducida.	
 	global probabilidadClases
 	probabilidadClases = classProbability(train)
 	
 	return train
-	
 	
 def feedback(predictionsKNN,predictionsNB):
 	# Comparamos las 2 predicciones.
@@ -402,27 +416,28 @@ def createCSV(outputRDD):
 def main():
 		
 	train, test = preprocessingSets('data/train.csv', 'data/test.csv')
+	trainFull = train
 	coincidenciasRDD = None
 	exitSuccess = None
-	random.seed()
 	
 	for i in range(0, ITERATIONS):
 
 		# Retroalimenta el train con los datos que se consiguen predecir correctamente.
 		# El formato del set de entrenamiento es (ID, Review, Score)
-		train = processingTrain(train, coincidenciasRDD)
+		train = processingTrain(train, trainFull, coincidenciasRDD)
 		
 		# "Entrenamiento" de KNN
 		# Genera RDD con la forma (#Hash, (Id, Text, HelpfulnessNumerator, HelpfulnessDenominator, Prediction))
-		trainKNN = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
+		trainKNN = trainingKNN(train, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashSTR, hashINT, hashVEC)
 
 		# Procesamiento de KNN (obtenemos en el predictionesKNN los valores de las reviews)
 		# (Id, Review, Prediction)
-		predictionsKNN = processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashINT, hashSTR, hashVEC)
+		predictionsKNN = processKNN(trainKNN, test, dimTHT, dimMH, shingleSize, hashesGroups, hashesPerGroup, hashSTR, hashINT, hashVEC)
 		
 		# Entrenamiento de Naive-Bayes
 		# Genera RDD con la forma (#Hash, (Text, (Freq. 0, Freq. 1, Freq. 2, Freq. 3, Freq. 4, Freq. 5)))
 		trainNB = trainingNB(train)
+		global stopwords
 		stopwords = collectingStopWords(trainNB)
 		
 		# Procesamiento de NB (obtenemos en el predictionSNB los valores de las reviews)
