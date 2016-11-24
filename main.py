@@ -115,15 +115,6 @@ def custom_split(string, separator):
 	return return_value
 
 
-def mode_return(mode, x, nonStopWords):
-	switcher = {
-		1: (x[0], nonStopWords, x[6]),
-		2: (x[0], nonStopWords),
-		3: (x[0], nonStopWords, x[2]),
-		4: (x[0], nonStopWords), 
-	}
-	return switcher.get(mode, None)
-
 def mode_index(mode):
 	switcher = {
 		1: 9,
@@ -132,6 +123,7 @@ def mode_index(mode):
 		4: 1,
 	}
 	return switcher.get(mode, None)
+
 
 def process_row(x, mode):
 	idx = mode_index(mode)
@@ -142,7 +134,12 @@ def process_row(x, mode):
 	nonStopWords = filter(lambda w: not(w in stopwords), textWords)
 	nonStopWords = ' '.join(nonStopWords)
 	
-	return mode_return(mode, x, nonStopWords)
+	if mode == 1:
+		return x[0], nonStopWords, x[6]
+	elif mode == 3:
+		return x[0], nonStopWords, x[2]
+	else:
+		return x[0], nonStopWords
 
 
 def filterStopWord(vector):
